@@ -1,0 +1,21 @@
+<odoo>
+    <record id="view_product_id_mapping_tree" model="ir.ui.view">
+        <field name="model">product.id.mapping</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="external_product_id"/>
+                <field name="product_id"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_customer_id_mapping_tree" model="ir.ui.view">
+        <field name="model">customer.id.mapping</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="external_customer_id"/>
+                <field name="partner_id"/>
+            </tree>
+        </field>
+    </record>
+</odoo>
