@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <data>
+        <!-- Action to open the list view -->
+        <record id="action_skypos_api_keys" model="ir.actions.act_window">
+            <field name="name">SkyPOS API Keys</field>
+            <field name="res_model">skypos.api.key</field>
+            <field name="view_mode">tree,form</field>
+            <field name="context">{}</field>
+        </record>
+
+        <!-- Add menu under Settings > Technical -->
+        <menuitem id="menu_skypos_api_keys"
+                  name="SkyPOS API Keys"
+                  parent="base.menu_custom"
+                  action="action_skypos_api_keys"
+                  sequence="20"/>
+    </data>
+</odoo>
