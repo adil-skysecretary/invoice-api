@@ -7,7 +7,8 @@
     "depends": ["sale", "account"],
     "data": [
         "security/ir.model.access.csv",
-        "views/mapping_views.xml"
+        "views/mapping_views.xml",
+        "views/skypos_api_menu.xml"
     ],
     "license": "LGPL-3",
     "installable": True,
