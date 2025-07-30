@@ -2,7 +2,8 @@ from odoo import http,fields
 from odoo.http import request, Response
 import json
 import logging
-
+from datetime import datetime
+# Then use datetime.now()
 _logger = logging.getLogger(__name__)
 
 class ExternalSalesSyncController(http.Controller):
@@ -194,11 +195,10 @@ class ExternalSalesSyncController(http.Controller):
 
             external_id = data.get('external_customer_id')
             name = data.get('name')
-            email = data.get('email')
             phone = data.get('phone')
 
             # Validate input
-            required_fields = ['external_customer_id', 'name', 'email', 'phone']
+            required_fields = ['external_customer_id', 'name', 'phone']
             missing = [f for f in required_fields if not data.get(f)]
             if missing:
                 return {
@@ -218,7 +218,6 @@ class ExternalSalesSyncController(http.Controller):
             # Otherwise, create the customer
             partner = request.env['res.partner'].sudo().create({
                 'name': name,
-                'email': email,
                 'phone': phone,
                 'customer_rank': 1,
             })
@@ -359,5 +358,7 @@ class ExternalSalesSyncController(http.Controller):
                 "error": str(e),
                 "message": "Payment failed"
             }
+
+
 
 
