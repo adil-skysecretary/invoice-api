@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="view_tax_id_mapping_tree" model="ir.ui.view">
+        <field name="name">tax.id.mapping.tree</field>
+        <field name="model">tax.id.mapping</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="external_tax_id"/>
+                <field name="tax_id"/>
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_tax_id_mapping_form" model="ir.ui.view">
+        <field name="name">tax.id.mapping.form</field>
+        <field name="model">tax.id.mapping</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="external_tax_id"/>
+                        <field name="tax_id"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_tax_id_mapping" model="ir.actions.act_window">
+        <field name="name">External Tax Mapping</field>
+        <field name="res_model">tax.id.mapping</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p>Use this to map external tax IDs to Odoo tax records.</p>
+        </field>
+    </record>
+    <menuitem id="menu_tax_id_mapping"
+              name="External Tax Mapping"
+              parent="account.menu_finance_configuration"
+              action="action_tax_id_mapping"
+              sequence="50"/>
+</odoo>

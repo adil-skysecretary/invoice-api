@@ -2,3 +2,5 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_product_id_mapping,access_product_id_mapping,model_product_id_mapping,,1,1,1,1
 access_customer_id_mapping,access_customer_id_mapping,model_customer_id_mapping,,1,1,1,1
 access_skypos_api_key,access_skypos_api_key,model_skypos_api_key,base.group_system,1,1,1,1
+access_invoice_id_mapping,access_invoice_id_mapping,model_invoice_id_mapping,,1,1,1,1
+access_tax_id_mapping,access_tax_id_mapping,model_tax_id_mapping,,1,1,1,1

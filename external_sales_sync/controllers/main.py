@@ -1,7 +1,8 @@
-from odoo import http
+from odoo import http,fields
 from odoo.http import request, Response
 import json
 import logging
+
 _logger = logging.getLogger(__name__)
 
 class ExternalSalesSyncController(http.Controller):
@@ -35,24 +36,36 @@ class ExternalSalesSyncController(http.Controller):
             data = kwargs
             _logger.info("Received data: %s", data)
 
+            external_invoice_id = data.get('external_invoice_id')
+            if external_invoice_id:
+                existing_map = request.env['invoice.id.mapping'].sudo().search([
+                    ('external_id', '=', external_invoice_id)
+                ], limit=1)
+                if existing_map:
+                    invoice = existing_map.invoice_id
+                    return {
+                        "status": "Invoice Already Exists",
+                        "invoice_id": invoice.id
+                    }
             ext_cust_id = data.get('external_customer_id')
             customer_name = data.get('customer_name', 'New Customer')
             items = data.get('order_lines', [])
             post_invoice = data.get('invoice', False)
+            payment_info = data.get('payment', {})
 
             cust_map = request.env['customer.id.mapping'].sudo().search([('external_customer_id', '=', ext_cust_id)],
                                                                         limit=1)
             if not cust_map:
-                if not cust_map:
-                    partner_vals = {
-                        'name': customer_name,
-                    }
-                    partner = request.env['res.partner'].sudo().create(partner_vals)
-                    cust_map = request.env['customer.id.mapping'].sudo().create({
-                        'external_customer_id': ext_cust_id,
-                        'partner_id': partner.id,
-                    })
-                    _logger.info("Created new partner and mapping for %s", ext_cust_id)
+                partner_vals = {
+                    'name': customer_name,
+                }
+                partner = request.env['res.partner'].sudo().create(partner_vals)
+                cust_map = request.env['customer.id.mapping'].sudo().create({
+                    'external_customer_id': ext_cust_id,
+                    'partner_id': partner.id,
+                })
+                _logger.info("Created new partner and mapping for %s", ext_cust_id)
+
 
             order_lines = []
             for item in items:
@@ -74,25 +87,85 @@ class ExternalSalesSyncController(http.Controller):
                         'external_product_id': external_pid,
                         'product_id': product.id,
                     })
-                    _logger.info("Created new product and mapping for %s", external_pid)
+                tax_ids = []
+                external_tax_id = item.get('tax_id')
+                if external_tax_id is not None:
+                    tax_map = request.env['tax.id.mapping'].sudo().search([
+                        ('external_tax_id', '=', external_tax_id)
+                    ], limit=1)
+
+                    if tax_map:
+                        tax_ids = [(6, 0, [tax_map.tax_id.id])]  # m2m format
 
                 order_lines.append((0, 0, {
                     'product_id': prod_map.product_id.id,
                     'product_uom_qty': item.get('quantity', 1),
                     'price_unit': item.get('price_unit', prod_map.product_id.lst_price),
                     'discount': item.get('discount', 0),
-                    'tax_id': [(6, 0, [item['tax_id']])] if item.get('tax_id') else False,
-                }))
+                    'tax_id': tax_ids,
 
+                }))
+            # create sale order
             order = request.env['sale.order'].sudo().create({
                 'partner_id': cust_map.partner_id.id,
                 'order_line': order_lines
             })
+            # confirm the sale order
             order.action_confirm()
 
+            # if invoice is true is in api pass
             if post_invoice:
                 invoice = order._create_invoices()
                 invoice.action_post()
+
+                if external_invoice_id:
+                    # Save to mapping model
+                    request.env['invoice.id.mapping'].sudo().create({
+                        'external_id': external_invoice_id,
+                        'invoice_id': invoice.id
+                    })
+
+                payment_data = data.get('payment', {})
+                amount = payment_data.get('amount')
+
+                if amount and amount > 0:
+                    journal_name = payment_data.get('journal_name')
+                    payment_method_name = payment_data.get('payment_method_name')
+
+                    journal = request.env['account.journal'].sudo().search([('name', '=', journal_name)], limit=1)
+                    if not journal:
+                        return Response(json.dumps({'error': f'Journal "{journal_name}" not found'}), status=400,
+                                        content_type='application/json')
+
+                    payment_method = request.env['account.payment.method'].sudo().search([
+                        ('name', '=', payment_method_name),
+                        ('payment_type', '=', 'inbound')
+                    ], limit=1)
+                    if not payment_method:
+                        return Response(json.dumps({'error': f'Payment Method "{payment_method_name}" not found'}),
+                                        status=400, content_type='application/json')
+
+                    payment_date = payment_data.get('payment_date')
+                    memo = invoice.name
+
+                    PaymentRegister = request.env['account.payment.register'].sudo().with_context(
+                        active_model='account.move', active_ids=invoice.ids)
+
+                    payment_register = PaymentRegister.create({
+                        'journal_id': journal.id,
+                        'amount': amount,
+                        'payment_date': payment_date,
+                        'communication': memo
+                    })
+
+                    payment_result = payment_register.action_create_payments()
+
+                    return {
+                        "status": "Invoice and Payment Created and Reconciled",
+                        "invoice_id": invoice.id,
+                        "payment_result": payment_result  # usually returns a redirect to payment form
+                    }
+
                 return {"status": "Invoice Created", "invoice_id": invoice.id}
 
             return {"status": "Order Created", "order_id": order.id}
@@ -228,3 +301,63 @@ class ExternalSalesSyncController(http.Controller):
                 'status': 'error',
                 'message': str(e)
             }
+
+    @http.route('/api/payment/register', type='json', auth='public', methods=['POST'], csrf=False)
+    def register_payment(self, **kwargs):
+        is_auth, error_response = self._authenticate_request()
+        if not is_auth:
+            return error_response
+
+        try:
+            data = kwargs
+            external_invoice_id = data.get('external_invoice_id')
+            amount = data.get('amount')
+
+            if not external_invoice_id or not amount:
+                return {"error": "Missing invoice ID or amount"}
+
+            invoice = request.env['account.move'].sudo().search([
+                ('external_invoice_id', '=', external_invoice_id),
+                ('move_type', '=', 'out_invoice'),
+                ('state', '=', 'posted')
+            ], limit=1)
+
+            if not invoice:
+                return {"error": f"Invoice with external ID {external_invoice_id} not found or not posted"}
+
+            if invoice.payment_state == 'paid':
+                return {"status": "Already Paid", "invoice_id": invoice.id}
+
+            journal_name = data.get('journal_name')
+            journal = request.env['account.journal'].sudo().search([('name', '=', journal_name)], limit=1)
+            if not journal:
+                return {"error": f"Journal '{journal_name}' not found"}
+
+            payment_date = data.get('payment_date') or fields.Date.today().isoformat()
+            memo = invoice.name
+
+            PaymentRegister = request.env['account.payment.register'].sudo().with_context(
+                active_model='account.move', active_ids=invoice.ids)
+
+            payment_register = PaymentRegister.create({
+                'journal_id': journal.id,
+                'amount': amount,
+                'payment_date': payment_date,
+            })
+
+            payment_result = payment_register.action_create_payments()
+
+            return {
+                "status": "Payment Applied",
+                "invoice_id": invoice.id,
+                "payment_id": payment_result.get('res_id'),
+                "payment_state": invoice.payment_state
+            }
+
+        except Exception as e:
+            return {
+                "error": str(e),
+                "message": "Payment failed"
+            }
+
+
