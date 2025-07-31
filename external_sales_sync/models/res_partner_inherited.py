@@ -7,7 +7,7 @@ class ResPartnerInherited(models.Model):
     external_customer_id = fields.Char(
         string="External Customer ID",
         compute="_compute_external_customer_id",
-        store=False
+        store=True
     )
 
     def _compute_external_customer_id(self):

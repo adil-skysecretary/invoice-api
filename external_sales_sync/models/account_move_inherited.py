@@ -6,7 +6,7 @@ class AccountMove(models.Model):
     external_invoice_id = fields.Char(
         string="External Invoice ID",
         compute="_compute_external_invoice_id",
-        store=False
+        store=True
     )
 
     def _compute_external_invoice_id(self):

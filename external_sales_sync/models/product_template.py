@@ -6,7 +6,7 @@ class ProductProduct(models.Model):
     external_product_id = fields.Char(
         string="SkyPOS External ID",
         compute="_compute_external_product_id",
-        store=False
+        store=True
     )
 
     def _compute_external_product_id(self):
