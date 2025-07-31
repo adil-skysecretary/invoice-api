@@ -8,13 +8,17 @@ _logger = logging.getLogger(__name__)
 
 class ExternalSalesSyncController(http.Controller):
 
+    # token authentication ,this step is used to validate the token when access the api link
     def _authenticate_request(self):
+        # take the authorization from the header what pass through the api
         auth_header = request.httprequest.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
             return False, Response(json.dumps({'error': 'Missing or invalid token'}), status=401,
                                    content_type='application/json')
 
         token = auth_header.split('Bearer ')[1].strip()
+
+        # Check the token passes through the header and stored token in our module
 
         key_obj = request.env['skypos.api.key'].sudo().search([
             ('api_key', '=', token),
@@ -26,8 +30,14 @@ class ExternalSalesSyncController(http.Controller):
 
         return True, None
 
+
     @http.route('/api/sales/create', type='json', auth='public', methods=['POST'], csrf=False)
     def create_sale(self, **kwargs):
+
+        """ This function is used to create a new sale order and the passes value in api is true in the case of
+        invoice then it create invoice after sale order created.and also if we pass the payment details then its mark
+        paid or partial.in between it crete customer and products if it not in customer mapping and product mapping """
+
         is_auth, error_response = self._authenticate_request()
         if not is_auth:
             return error_response
@@ -96,7 +106,7 @@ class ExternalSalesSyncController(http.Controller):
                     ], limit=1)
 
                     if tax_map:
-                        tax_ids = [(6, 0, [tax_map.tax_id.id])]  # m2m format
+                        tax_ids = [(6, 0, [tax_map.tax_id.id])]
 
                 order_lines.append((0, 0, {
                     'product_id': prod_map.product_id.id,
@@ -254,13 +264,12 @@ class ExternalSalesSyncController(http.Controller):
             name = data.get('name')
             list_price = data.get('list_price')
             default_code = data.get('default_code')
-            tax_id = data.get('tax_id')
-            discount = data.get('discount')
+            standard_price = data.get('standard_price')
 
-            if not all([external_product_id, name, list_price, default_code]):
+            if not all([external_product_id, name, list_price, default_code,standard_price]):
                 return {
                     'status': 'error',
-                    'message': 'Missing required fields: external_product_id, name, list_price, default_code'
+                    'message': 'Missing required fields: external_product_id, name, list_price, default_code, standard_price'
                 }
 
             # Check if product already exists
@@ -271,14 +280,22 @@ class ExternalSalesSyncController(http.Controller):
                     'status': 'exists',
                     'message': f'Product already exists with ID: {mapping.product_id.id}'
                 }
+            tax_ids = []
+            external_tax_id = data.get('tax_id')
+            if external_tax_id is not None:
+                tax_map = request.env['tax.id.mapping'].sudo().search([
+                    ('external_tax_id', '=', external_tax_id)
+                ], limit=1)
 
+                if tax_map:
+                    tax_ids = [(6, 0, [tax_map.tax_id.id])]
             # Create product
             product_vals = {
                 'name': name,
                 'list_price': list_price,
                 'default_code': default_code,
-                'taxes_id': [(6, 0, [tax_id])] if tax_id else [],
-                'description_sale': f"External Product - Discount {discount}%" if discount else ''
+                'taxes_id': tax_ids,
+                'standard_price': standard_price,
             }
             product = request.env['product.product'].sudo().create(product_vals)
 
