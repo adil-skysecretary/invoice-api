@@ -2,13 +2,11 @@ from odoo import http,fields
 from odoo.http import request, Response
 import json
 import logging
-from datetime import datetime
-# Then use datetime.now()
+
 _logger = logging.getLogger(__name__)
 
 class ExternalSalesSyncController(http.Controller):
 
-    # token authentication ,this step is used to validate the token when access the api link
     def _authenticate_request(self):
         # take the authorization from the header what pass through the api
         auth_header = request.httprequest.headers.get('Authorization')
@@ -55,14 +53,13 @@ class ExternalSalesSyncController(http.Controller):
                 if existing_map:
                     invoice = existing_map.invoice_id
                     return {
-                        "status": "Invoice Already Exists",
+                        "error": "Invoice Already Exists",
                         "invoice_id": invoice.id
                     }
             ext_cust_id = data.get('external_customer_id')
             customer_name = data.get('customer_name', 'New Customer')
             items = data.get('order_lines', [])
             post_invoice = data.get('invoice', False)
-            payment_info = data.get('payment', {})
 
             cust_map = request.env['customer.id.mapping'].sudo().search([('external_customer_id', '=', ext_cust_id)],
                                                                         limit=1)
@@ -112,7 +109,6 @@ class ExternalSalesSyncController(http.Controller):
                     'product_id': prod_map.product_id.id,
                     'product_uom_qty': item.get('quantity', 1),
                     'price_unit': item.get('price_unit', prod_map.product_id.lst_price),
-                    'discount': item.get('discount', 0),
                     'tax_id': tax_ids,
 
                 }))
@@ -141,20 +137,11 @@ class ExternalSalesSyncController(http.Controller):
 
                 if amount and amount > 0:
                     journal_name = payment_data.get('journal_name')
-                    payment_method_name = payment_data.get('payment_method_name')
 
                     journal = request.env['account.journal'].sudo().search([('name', '=', journal_name)], limit=1)
                     if not journal:
                         return Response(json.dumps({'error': f'Journal "{journal_name}" not found'}), status=400,
                                         content_type='application/json')
-
-                    payment_method = request.env['account.payment.method'].sudo().search([
-                        ('name', '=', payment_method_name),
-                        ('payment_type', '=', 'inbound')
-                    ], limit=1)
-                    if not payment_method:
-                        return Response(json.dumps({'error': f'Payment Method "{payment_method_name}" not found'}),
-                                        status=400, content_type='application/json')
 
                     payment_date = payment_data.get('payment_date')
                     memo = invoice.name
@@ -174,7 +161,7 @@ class ExternalSalesSyncController(http.Controller):
                     return {
                         "status": "Invoice and Payment Created and Reconciled",
                         "invoice_id": invoice.id,
-                        "payment_result": payment_result  # usually returns a redirect to payment form
+                        "payment_result": payment_result
                     }
 
                 return {"status": "Invoice Created", "invoice_id": invoice.id}
@@ -183,17 +170,13 @@ class ExternalSalesSyncController(http.Controller):
 
 
         except Exception as e:
+            _logger.exception("Error in create_sale")
             return {
-                "jsonrpc": "2.0",
-                "id": None,
-                "result": {
-                    "error": str(e),
-                    "message": "Invalid JSON structure or server error"
-                }
+                "error": f"Invalid JSON or server error: {str(e)}"
             }
 
 
-    @http.route('/external_sales/create_customer', type='json', auth='public', methods=['POST'], csrf=False)
+    @http.route('/api/external_sales/create_customer', type='json', auth='public', methods=['POST'], csrf=False)
     def create_customer_from_skypos(self, **kwargs):
         is_auth, error_response = self._authenticate_request()
         if not is_auth:
@@ -212,8 +195,7 @@ class ExternalSalesSyncController(http.Controller):
             missing = [f for f in required_fields if not data.get(f)]
             if missing:
                 return {
-                    'status': 'error',
-                    'message': f'Missing fields: {", ".join(missing)}'
+                    "error": f"Missing fields: {', '.join(missing)}"
                 }
 
             # Check if customer already exists by external ID
@@ -244,14 +226,14 @@ class ExternalSalesSyncController(http.Controller):
                 'partner_id': partner.id
             }
 
+
         except Exception as e:
             _logger.error("Customer creation error: %s", str(e))
             return {
-                "status": "error",
-                "message": str(e)
+                "error": str(e)
             }
 
-    @http.route('/external_sales/create_product', type='json', auth='public', csrf=False, methods=['POST'])
+    @http.route('/api/external_sales/create_product', type='json', auth='public', csrf=False, methods=['POST'])
     def create_product(self, **kwargs):
         is_auth, error_response = self._authenticate_request()
         if not is_auth:
@@ -266,10 +248,9 @@ class ExternalSalesSyncController(http.Controller):
             default_code = data.get('default_code')
             standard_price = data.get('standard_price')
 
-            if not all([external_product_id, name, list_price, default_code,standard_price]):
+            if not all([external_product_id, name, list_price, default_code, standard_price]):
                 return {
-                    'status': 'error',
-                    'message': 'Missing required fields: external_product_id, name, list_price, default_code, standard_price'
+                    "error": "Missing required fields: external_product_id, name, list_price, default_code, standard_price"
                 }
 
             # Check if product already exists
@@ -314,8 +295,7 @@ class ExternalSalesSyncController(http.Controller):
         except Exception as e:
             _logger.exception("Error creating product")
             return {
-                'status': 'error',
-                'message': str(e)
+                "error": str(e)
             }
 
     @http.route('/api/payment/register', type='json', auth='public', methods=['POST'], csrf=False)
@@ -342,7 +322,7 @@ class ExternalSalesSyncController(http.Controller):
                 return {"error": f"Invoice with external ID {external_invoice_id} not found or not posted"}
 
             if invoice.payment_state == 'paid':
-                return {"status": "Already Paid", "invoice_id": invoice.id}
+                return {"error": "Invoice already paid", "invoice_id": invoice.id}
 
             journal_name = data.get('journal_name')
             journal = request.env['account.journal'].sudo().search([('name', '=', journal_name)], limit=1)
@@ -359,6 +339,7 @@ class ExternalSalesSyncController(http.Controller):
                 'journal_id': journal.id,
                 'amount': amount,
                 'payment_date': payment_date,
+                'communication': memo
             })
 
             payment_result = payment_register.action_create_payments()
@@ -371,9 +352,9 @@ class ExternalSalesSyncController(http.Controller):
             }
 
         except Exception as e:
+            _logger.exception("Payment registration failed")
             return {
-                "error": str(e),
-                "message": "Payment failed"
+                "error": f"Payment failed: {str(e)}"
             }
 
 
